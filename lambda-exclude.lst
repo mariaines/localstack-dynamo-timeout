@@ -1,0 +1,7 @@
+# These files are not copied over by the Local Lambda build process
+*.pyc
+*.txt
+*.md
+__pycache__/*
+local/*
+.lambda-build-2/*

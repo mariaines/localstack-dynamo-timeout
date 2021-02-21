@@ -1,0 +1,109 @@
+version: "3"
+
+services:
+  # Localstack service
+  localstack:
+    image: localstack/localstack-full:0.12.4
+    ports:
+      - "4566:4566"  # Edge port
+      - "${PORT_WEB_UI-8080}:${PORT_WEB_UI-8080}" # Console UI
+      - "5891:5891"
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - SERVICES=dynamodb,dynamodbstreams,kinesis,lambda,sqs
+      - DEFAULT_REGION=us-west-2
+      - DEBUG=1
+      # Runs Lamba function in lambci container that matches
+      # Lamba environment configuration
+      - LAMBDA_EXECUTOR=docker-reuse
+      - LAMBDA_REMOTE_DOCKER=False
+      - LAMBDA_DOCKER_NETWORK=localstack-dynamo-timeout_services_network
+      # If true, will remove idle Lambda containers
+      - LAMBDA_REMOVE_CONTAINERS=False
+      - AWS_DEFAULT_REGION=us-west-2
+      - AWS_CONTAINER_CREDENTIALS_RELATIVE_URI=/creds
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Mount the Lambda build directory so Lambdas can be shared across containers
+      - /tmp/.lambda-build-2:/tmp/.lambda-build-2
+    tmpfs:
+      - /tmp/localstack:exec,mode=600
+    networks:
+      services_network:
+        ipv4_address: "169.254.170.3"
+    depends_on:
+      - ecs-local-endpoints
+
+  # Build Lambdas and configure Localstack
+  # Based upon https://docs.aws.amazon.com/lambda/latest/dg/python-package.html
+  configure-localstack:
+    image: lambci/lambda:build-python3.8
+    volumes:
+      - .:/var/task:delegated
+      - /tmp/.lambda-build-2:/tmp/.lambda-build-2
+    environment:
+      # Does not need real credentials to connect to Localstack
+      - AWS_DEFAULT_REGION=us-west-2
+      - AWS_ACCESS_KEY_ID=dummyaccess
+      - AWS_SECRET_ACCESS_KEY=dummysecret
+    entrypoint: /bin/sh -c
+    command: "/var/task/configure-localstack.sh"
+    networks:
+      services_network:
+        ipv4_address: "169.254.170.5"
+    depends_on:
+      - localstack
+
+  # This container vends AWS credentials to other containers
+  ecs-local-endpoints:
+    # The Amazon ECS Local Container Endpoints Docker Image
+    image: amazon/amazon-ecs-local-container-endpoints
+    volumes:
+      # Mount /var/run so we can access docker.sock and talk to Docker
+      - /var/run:/var/run
+      # Mount the shared configuration directory, used by the AWS CLI and AWS SDKs
+      - $HOME/.aws/:/home/.aws/
+    environment:
+      # define the home folder; credentials will be read from $HOME/.aws
+      HOME: "/home"
+      # You can change which AWS CLI Profile is used
+      AWS_PROFILE: "default"
+    networks:
+      services_network:
+        # This special IP address is recognized by the AWS SDKs and AWS CLI
+        ipv4_address: "169.254.170.2"
+
+  # Main http container
+  uvicorn_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - 8000:8000
+      - 5890:5890
+    volumes:
+      - .:/home
+    environment:
+      # Used to obtain DynamoDB prod credentials via ecs-local-endpoints
+      - AWS_DEFAULT_REGION=us-west-2
+      - AWS_CONTAINER_CREDENTIALS_RELATIVE_URI=/creds
+      # Use LocalStack to emulate Dynamo
+      - LOCALSTACK_HOSTNAME=localstack
+    networks:
+      services_network:
+        ipv4_address: "169.254.170.6"
+    depends_on:
+      - localstack
+      - configure-localstack
+      - ecs-local-endpoints
+
+networks:
+  # This special network is configured so that the local metadata
+  # service can bind to the specific IP address that ECS uses
+  # in production
+  services_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "169.254.170.0/24"
+        #  gateway: 169.254.170.1
