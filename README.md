@@ -9,6 +9,7 @@ Trigger dynamo write via GET request to http://0.0.0.0:8000/create_item
 
 See socket timeouts in logs, e.g.:
 ```sh
+$ docker-compose up
 Creating network "localstack-dynamo-timeout_services_network" with driver "bridge"
 Creating localstack-dynamo-timeout_ecs-local-endpoints_1 ... done
 Creating localstack-dynamo-timeout_localstack_1          ... done
