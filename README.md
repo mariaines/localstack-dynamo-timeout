@@ -1,13 +1,22 @@
 # localstack-dynamo-timeout
 
-Start project:
-```sh
-docker-compose up
-```
+Demo repo to demonstrate problem as described in https://github.com/localstack/localstack/issues/3561
 
-Trigger dynamo write via GET request to http://0.0.0.0:8000/create_item
+This project sets up a uvicorn app serving an http endpoint /create_item that creates a dynamo item. The dynamo write triggers our DynamoDBStreamHandler, which, in turn, writes back to dynamo incrementing a counter on the item (up to 10).
 
-See socket timeouts in logs, e.g.:
+1. Start project:
+  ```sh
+  docker-compose up
+  ```
+
+2. Trigger dynamo write via GET request to http://0.0.0.0:8000/create_item
+
+3. See socket timeouts in logs (example below)
+
+  A couple notes:
+  - It seems to work a few times, then stops working
+  - As you can see by the stream handler being called, the writes to dynamo seem to succeed, despite the update_item call timing out.
+
 ```sh
 $ docker-compose up
 Creating network "localstack-dynamo-timeout_services_network" with driver "bridge"
